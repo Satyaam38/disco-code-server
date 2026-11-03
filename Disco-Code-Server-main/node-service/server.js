@@ -26,10 +26,7 @@ const server = http.createServer(app);
 // --- PART 1: SOCKET.IO (Handles Chat & Presence) ---
 const io = new Server(server, {
   cors: {
-    origin: [
-      'https://code-discord-tau.vercel.app',
-      'http://localhost:5173',
-    ],
+    origin: true, // Automatically reflects request origin (allows localhost, Vercel, etc.)
     methods: ['GET', 'POST'],
     credentials: true,
   },
