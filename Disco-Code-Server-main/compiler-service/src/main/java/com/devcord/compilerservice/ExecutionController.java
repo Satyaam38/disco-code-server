@@ -13,6 +13,9 @@ public class ExecutionController {
 
     @PostMapping("/execute")
     public Map<String, Object> executeCode(@RequestBody CodeRequest request) {
-        return codeExecutionService.execute(request.getLanguage(), request.getCode());
+        System.out.println("=== /execute Request Received ===");
+        System.out.println("Language: " + request.getLanguage());
+        System.out.println("Stdin: [" + request.getStdin() + "]");
+        return codeExecutionService.execute(request.getLanguage(), request.getCode(), request.getStdin());
     }
 }

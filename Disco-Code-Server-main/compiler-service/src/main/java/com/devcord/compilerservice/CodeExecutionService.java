@@ -12,6 +12,10 @@ public class CodeExecutionService {
     private static final int TIMEOUT_SECONDS = 10;
 
     public Map<String, Object> execute(String language, String code) {
+        return execute(language, code, null);
+    }
+
+    public Map<String, Object> execute(String language, String code, String stdin) {
         Map<String, Object> result = new HashMap<>();
         Path tempDir = null;
 
@@ -20,12 +24,12 @@ public class CodeExecutionService {
 
             switch (language.toLowerCase()) {
                 case "python":
-                    return runPython(tempDir, code);
+                    return runPython(tempDir, code, stdin);
                 case "java":
-                    return runJava(tempDir, code);
+                    return runJava(tempDir, code, stdin);
                 case "cpp":
                 case "c++":
-                    return runCpp(tempDir, code);
+                    return runCpp(tempDir, code, stdin);
                 default:
                     result.put("stdout", "");
                     result.put("stderr", "Unsupported language: " + language);
@@ -44,13 +48,13 @@ public class CodeExecutionService {
         }
     }
 
-    private Map<String, Object> runPython(Path dir, String code) throws IOException, InterruptedException {
+    private Map<String, Object> runPython(Path dir, String code, String stdin) throws IOException, InterruptedException {
         Path script = dir.resolve("script.py");
         Files.writeString(script, code);
-        return runProcess(new ProcessBuilder("python3", script.toString()), dir);
+        return runProcess(new ProcessBuilder("python3", script.toString()), dir, stdin);
     }
 
-    private Map<String, Object> runJava(Path dir, String code) throws IOException, InterruptedException {
+    private Map<String, Object> runJava(Path dir, String code, String stdin) throws IOException, InterruptedException {
         Path source = dir.resolve("Main.java");
         Files.writeString(source, code);
 
@@ -59,25 +63,26 @@ public class CodeExecutionService {
                 "-XX:TieredStopAtLevel=1",
                 "-XX:+UseSerialGC",
                 "-Xshare:auto",
-                source.toString()), dir);
+                source.toString()), dir, stdin);
     }
 
-    private Map<String, Object> runCpp(Path dir, String code) throws IOException, InterruptedException {
+    private Map<String, Object> runCpp(Path dir, String code, String stdin) throws IOException, InterruptedException {
         Path source = dir.resolve("script.cpp");
         Files.writeString(source, code);
-        Path binary = dir.resolve("a.out");
+        boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
+        Path binary = dir.resolve(isWindows ? "a.exe" : "a.out");
 
         Map<String, Object> compileResult = runProcess(
-                new ProcessBuilder("g++", source.toString(), "-o", binary.toString()), dir);
+                new ProcessBuilder("g++", source.toString(), "-o", binary.toString()), dir, null);
 
         if ((int) compileResult.get("exitCode") != 0) {
             return compileResult;
         }
 
-        return runProcess(new ProcessBuilder(binary.toString()), dir);
+        return runProcess(new ProcessBuilder(binary.toString()), dir, stdin);
     }
 
-    private Map<String, Object> runProcess(ProcessBuilder pb, Path dir) throws IOException, InterruptedException {
+    private Map<String, Object> runProcess(ProcessBuilder pb, Path dir, String stdin) throws IOException, InterruptedException {
         Map<String, Object> result = new HashMap<>();
         pb.directory(dir.toFile());
         pb.redirectErrorStream(false);
@@ -91,6 +96,23 @@ public class CodeExecutionService {
         Thread errThread = new Thread(() -> readStream(process.getErrorStream(), stderr));
         outThread.start();
         errThread.start();
+
+        // Feed standard input if provided, then close stdin stream to avoid hanging
+        if (stdin != null && !stdin.isEmpty()) {
+            try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                writer.write(stdin);
+                if (!stdin.endsWith("\n")) {
+                    writer.write("\n");
+                }
+                writer.flush();
+            } catch (IOException ignored) {
+            }
+        } else {
+            try {
+                process.getOutputStream().close();
+            } catch (IOException ignored) {
+            }
+        }
 
         boolean finished = process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
